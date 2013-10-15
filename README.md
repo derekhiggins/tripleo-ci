@@ -26,10 +26,10 @@ export http_proxy=http://1.2.3.4:3128
 
 See toci-defaults for a list of additional environment variables that can be
 defined in ~/.toci in order to control things like
-o Changing the architecture to amd64
-o Deploying tripleo images on real baremetal hosts
-o Increasing the resources allocated to bm_poseur nodes
-o notifying an irc channel and uploading toci results to a server (used if
+* Changing the architecture to amd64
+* Deploying tripleo images on real baremetal hosts
+* Increasing the resources allocated to bm_poseur nodes
+* notifying an irc channel and uploading toci results to a server (used if
   running toci as a CI framwork)
 
 Using Toci to setup a dev environment
@@ -51,10 +51,10 @@ Toci will start with a line outputing the working and log directories e.g.
 Starting run Wed  3 Jul 11:46:39 IST 2013 ( /opt/toci /tmp/toci_logs_nGnrhLN )
 
 Once it ran successfully (ERROR wasn't echo'd to the terminal) you should have
-1. seed vm
-2. undercloud vm
-3. overcloud controller vm
-4. overcloud compute vm
+* seed vm
+* undercloud vm
+* overcloud controller vm
+* overcloud compute vm
 
 NOTE: toci will now have cloned the dependency git repositories to /opt/toci,
 If you rerun toci it will NOT re-clone these again, if you would like it to
