@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -eux
 
+# Fake periodic job for testing
+export JOB_NAME=${JOB_NAME/gate-/periodic-}
+export TOCI_JOBTYPE=periodic-$TOCI_JOBTYPE
+
 # Clean any cached yum metadata, it maybe stale
 sudo yum clean all
 
