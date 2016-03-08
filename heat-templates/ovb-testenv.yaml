@@ -1,0 +1,122 @@
+heat_template_version: 2015-04-30
+parameters:
+  testenv_num:
+    type: string
+    default: '1'
+  testenv_count:
+    type: number
+    default: 4
+  undercloud_flavor:
+    type: string
+    default: ovb.undercloud
+  bmc_flavor:
+    type: string
+    default: ovb.bmc
+  bm_flavor:
+    type: string
+    default: ovb.baremetal
+  os_auth_url:
+    type: string
+  os_user:
+    type: string
+  os_password:
+    type: string
+  os_tenant:
+    type: string
+
+resources:
+  testenv_network:
+    type: OS::Neutron::Net
+    properties:
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_network'
+
+  testenv_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network: {get_resource: testenv_network}
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_subnet'
+      cidr: 192.0.2.0/24
+      gateway_ip: null
+      enable_dhcp: false
+
+  undercloud_server:
+    type: OS::Nova::Server
+    depends_on: testenv_subnet
+    properties:
+      flavor: {get_param: undercloud_flavor}
+      image: 'CentOS 7 (1511) x86_64'
+      key_name: testenv_key
+      security_groups:
+      - min_sg
+      networks:
+      - network: private_net
+      - network: {get_resource: testenv_network}
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_undercloud'
+
+  bmc_server:
+    type: OS::Nova::Server
+    properties:
+      flavor: {get_param: bmc_flavor}
+      image: 'CentOS 7 (1511) x86_64'
+      key_name: testenv_key
+      networks:
+        - network: private_net
+        - network: private_net
+      name: 
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_bmc'
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          params:
+            $os_user: {get_param: os_user}
+            $os_password: {get_param: os_password}
+            $os_tenant: {get_param: os_tenant}
+            $os_auth_url: {get_param: os_auth_url}
+            $bm_node_count: {get_param: testenv_count}
+            $bmc_prefix:
+              list_join:
+              - ''
+              - - 'te'
+                - {get_param: testenv_num}
+                - '_bmc'
+            $bm_prefix:
+              list_join:
+              - ''
+              - - 'te'
+                - {get_param: testenv_num}
+                - '_bm'
+            $private_net: private_net
+            $openstackbmc_script: {get_file: ./bin/openstackbmc}
+          template: {get_file: ./bin/install_openstackbmc.sh}
+
+  bmservers:
+    type: OS::Heat::ResourceGroup
+    depends_on: testenv_subnet
+    properties:
+      count: {get_param: testenv_count}
+      resource_def:
+        type: ovb-bmserver.yaml
+        properties:
+          testenv_num: {get_param: testenv_num}
+          testenv_network: {get_resource: testenv_network}
+          bm_flavor: {get_param: bm_flavor}
+          index: '%index%'

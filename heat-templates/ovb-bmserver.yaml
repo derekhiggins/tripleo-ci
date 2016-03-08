@@ -1,0 +1,54 @@
+heat_template_version: 2015-04-30
+parameters:
+  testenv_num:
+    type: string
+  index:
+    type: string
+  testenv_network:
+    type: string
+  bm_flavor:
+    type: string
+
+resources:
+  bm_port:
+    type: OS::Neutron::Port
+    properties:
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_bm_'
+          - {get_param: index}
+      network: {get_param: testenv_network}
+      security_groups:
+      - all_sg
+
+  baremetal_server:
+    type: OS::Nova::Server
+    properties:
+      flavor: {get_param: bm_flavor}
+      image: empty
+      config_drive: false
+      networks:
+      - port: {get_resource: bm_port}
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_bm_'
+          - {get_param: index}
+  bmc_port:
+    type: OS::Neutron::Port
+    properties:
+      name:
+        list_join:
+        - ''
+        - - 'te'
+          - {get_param: testenv_num}
+          - '_bmc_'
+          - {get_param: index}
+      network: private_net
+      security_groups:
+      - bmc_sg

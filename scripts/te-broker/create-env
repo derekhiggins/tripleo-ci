@@ -1,0 +1,41 @@
+#!/bin/bash
+
+source /etc/tocirc
+
+if [ ! -e ~/.ssh/id_rsa_toci ] ; then
+    ssh-keygen -N "" -f ~/.ssh/id_rsa_toci
+    nova keypair-delete default || true
+    nova keypair-add --pub-key ~/.ssh/id_rsa_toci.pub default
+fi
+
+cd /opt/stack/openstack-virtual-baremetal/
+
+cat <<-EOF > /opt/stack/openstack-virtual-baremetal/env.yaml
+parameters:
+  os_user: $OS_USERNAME
+  os_password: $OS_PASSWORD
+  os_tenant: $OS_TENANT_NAME
+  os_auth_url: $OS_AUTH_URL
+  bmc_flavor: ovb.bmc
+  bmc_image: CentOS 7 (1511) x86_64
+  baremetal_flavor: ovb.baremetal
+  baremetal_image: empty
+  key_name: default
+  private_net: default
+  bmc_prefix: bmc
+  baremetal_prefix: baremetal
+  node_count: 2
+  public_net: public
+  provision_net: provision
+  # QuintupleO-specific params ignored by virtual-baremetal.yaml
+  undercloud_name: undercloud
+  undercloud_image: CentOS 7 (1511) x86_64
+  undercloud_flavor: ovb.undercloud
+  external_net: public
+EOF
+
+# TODO: we need a common prefix that can be used on both the stack name and all of the resources it creates
+# TODO: Would be good to avoid security group create in the quintupleo stack i.e. have a commong security group
+# TODO: investgate the need for the public_net
+# TODO: can we have a undercloud without a floating IP?
+heat stack-create -f templates/quintupleo.yaml -e templates/resource-registry.yaml -e env.yaml quintupleo

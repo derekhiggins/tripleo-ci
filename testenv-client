@@ -141,6 +141,12 @@ def main(args=sys.argv[1:]):
     parser.add_argument('--timeout', '-t',  default='10800',
                         help='Set a timeout, after which the command will '
                              'be killed.')
+    parser.add_argument('--envsize', default=2, type=int,
+                        help='Number of baremetal nodes to request')
+    parser.add_argument('--flavors', default="undercloud,baremetal,bmc",
+                        help='Flavors for the undercloud,bmnodes and bmc')
+    parser.add_argument('--image', default="CentOS 7",
+                        help='Image used for undercloud and bmc')
     parser.add_argument('--debug', '-d',  action='store_true',
                         help='Set to debug mode.')
     opts = parser.parse_args(args)
@@ -155,7 +161,13 @@ def main(args=sys.argv[1:]):
     add_servers(client, opts.geard)
     client.waitForServer()
 
-    job_params = {"callback_name": callback_name, "timeout": opts.timeout}
+    job_params = {
+        "callback_name": callback_name,
+        "timeout": opts.timeout,
+        "envsize":opts.envsize,
+        "flavors":opts.flavors,
+        "image":opts.image,
+    }
     job = gear.Job('lockenv', json.dumps(job_params))
     client.submitJob(job)
 
