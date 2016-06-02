@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -eux
 
+# Need to make sure lsb_release is installed
+sudo yum -y install redhat-lsb-core
+
 LSBRELEASE=`lsb_release -i -s`
 
 # Clean any cached yum metadata, it maybe stale
@@ -51,7 +54,8 @@ export PACEMAKER=0
 # the deploy.  Hopefully that's enough, while still leaving some cushion to come
 # in under the gate timeout so we can collect logs.
 OVERCLOUD_DEPLOY_TIMEOUT=$((DEVSTACK_GATE_TIMEOUT-90))
-export OVERCLOUD_DEPLOY_ARGS="--libvirt-type=qemu -t $OVERCLOUD_DEPLOY_TIMEOUT"
+export OVERCLOUD_DEPLOY_ARGS=${OVERCLOUD_DEPLOY_ARGS:-""}
+export OVERCLOUD_DEPLOY_ARGS="$OVERCLOUD_DEPLOY_ARGS --libvirt-type=qemu -t $OVERCLOUD_DEPLOY_TIMEOUT"
 export OVERCLOUD_UPDATE_ARGS=
 export UNDERCLOUD_SSL=0
 export TRIPLEO_SH_ARGS=
@@ -59,6 +63,10 @@ export NETISO_V4=0
 export NETISO_V6=0
 export RUN_PING_TEST=1
 export RUN_TEMPEST_TESTS=0
+export MULTINODE=0
+export CONTROLLER_HOSTS=
+export COMPUTE_HOSTS=
+export SUBNODES_SSH_KEY=
 
 # Set the fedora mirror, this is more reliable then relying on the repolist returned by metalink
 # NOTE(pabelanger): Once we bring AFS mirrors online, we no longer need to do this.
@@ -107,6 +115,15 @@ for JOB_TYPE_PART in $(sed 's/-/ /g' <<< "${TOCI_JOBTYPE:-}") ; do
             exit 1
             TRIPLEO_SH_ARGS="--use-containers"
             ;;
+        multinode)
+            NODECOUNT=2
+            MULTINODE=1
+            PACEMAKER=1
+            CONTROLLER_HOSTS=$(sed -n 1,1p /etc/nodepool/sub_nodes)
+            COMPUTE_HOSTS=$(sed -n 2,2p /etc/nodepool/sub_nodes)
+            SUBNODES_SSH_KEY=/etc/nodepool/id_rsa
+            OVERCLOUD_DEPLOY_ARGS="$OVERCLOUD_DEPLOY_ARGS -e /usr/share/openstack-tripleo-heat-templates/environments/puppet-pacemaker.yaml -e /usr/share/openstack-tripleo-heat-templates/deployed-server/deployed-server-environment.yaml"
+            ;;
         periodic)
             export DELOREAN_REPO_URL=http://trunk.rdoproject.org/centos7/consistent
             CACHEUPLOAD=1
@@ -132,22 +149,26 @@ sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 sudo iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
 echo 1 | sudo dd of=/proc/sys/net/ipv4/ip_forward
 
-TIMEOUT_SECS=$((DEVSTACK_GATE_TIMEOUT*60))
-# ./testenv-client kill everything in its own process group it it hits a timeout
-# run it in a separate group to avoid getting killed along with it
-set -m
+if [ "$MULTINODE" = "0" ]; then
+    TIMEOUT_SECS=$((DEVSTACK_GATE_TIMEOUT*60))
+    # ./testenv-client kill everything in its own process group it it hits a timeout
+    # run it in a separate group to avoid getting killed along with it
+    set -m
 
-source /opt/stack/new/tripleo-ci/scripts/metrics.bash
-start_metric "tripleo.testenv.wait.seconds"
-if [ -z ${TE_DATAFILE:-} ] ; then
-    # NOTE(pabelanger): We need gear for testenv, but this really should be
-    # handled by tox.
-    if [ $LSBRELEASE == 'CentOS' ]; then
-        sudo yum install -y python-gear
+    source /opt/stack/new/tripleo-ci/scripts/metrics.bash
+    start_metric "tripleo.testenv.wait.seconds"
+    if [ -z ${TE_DATAFILE:-} ] ; then
+        # NOTE(pabelanger): We need gear for testenv, but this really should be
+        # handled by tox.
+        if [ $LSBRELEASE == 'CentOS' ]; then
+            sudo yum install -y python-gear
+        fi
+        # Kill the whole job if it doesn't get a testenv in 20 minutes as it likely will timout in zuul
+        ( sleep 1200 ; [ ! -e /tmp/toci.started ] && sudo kill -9 $$ ) &
+        ./testenv-client -b $GEARDSERVER:4730 -t $TIMEOUT_SECS -- ./toci_instack.sh
+    else
+        LEAVE_RUNNING=1 ./toci_instack.sh
     fi
-    # Kill the whole job if it doesn't get a testenv in 20 minutes as it likely will timout in zuul
-    ( sleep 1200 ; [ ! -e /tmp/toci.started ] && sudo kill -9 $$ ) &
-    ./testenv-client -b $GEARDSERVER:4730 -t $TIMEOUT_SECS -- ./toci_instack.sh
 else
-    LEAVE_RUNNING=1 ./toci_instack.sh
+    ./toci_instack_multinode.sh
 fi

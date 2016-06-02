@@ -10,3 +10,10 @@ scripts/website/tripleo-docs/
 scripts/website/tripleosphinx/
 scripts/website/planet-2.0/
 scripts/website/planet.html.tmplc
+
+multinode/openvpn/serial
+multinode/openvpn/index.txt
+multinode/openvpn/index.txt.attr
+multinode/openvpn/*.csr
+multinode/openvpn/*.crt
+multinode/openvpn/*.key

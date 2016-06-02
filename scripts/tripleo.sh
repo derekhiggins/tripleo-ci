@@ -53,6 +53,7 @@ function show_options {
     echo "      --repo-setup            -- Perform repository setup."
     echo "      --delorean-setup        -- Install local delorean build environment."
     echo "      --delorean-build        -- Build a delorean package locally"
+    echo "      --multinode-setup       -- Perform multinode setup."
     echo "      --undercloud            -- Install the undercloud."
     echo "      --overcloud-images      -- Build and load overcloud images."
     echo "      --register-nodes        -- Register and configure nodes."
@@ -78,7 +79,7 @@ if [ ${#@} = 0 ]; then
 fi
 
 TEMP=$(getopt -o ,h \
-        -l,help,repo-setup,delorean-setup,delorean-build,undercloud,overcloud-images,register-nodes,introspect-nodes,overcloud-deploy,overcloud-update,overcloud-delete,use-containers,overcloud-pingtest,skip-pingtest-cleanup,all,enable-check,run-tempest \
+        -l,help,repo-setup,delorean-setup,delorean-build,multinode-setup,undercloud,overcloud-images,register-nodes,introspect-nodes,overcloud-deploy,overcloud-update,overcloud-delete,use-containers,overcloud-pingtest,skip-pingtest-cleanup,all,enable-check,run-tempest \
         -o,x,h,a \
         -n $SCRIPT_NAME -- "$@")
 
@@ -124,6 +125,7 @@ OVERCLOUD_IMAGES_DIB_YUM_REPO_CONF=${OVERCLOUD_IMAGES_DIB_YUM_REPO_CONF:-"\
     $REPO_PREFIX/delorean-deps.repo"}
 DELOREAN_SETUP=${DELOREAN_SETUP:-""}
 DELOREAN_BUILD=${DELOREAN_BUILD:-""}
+MULTINODE_SETUP=${MULTINODE_SETUP:-""}
 STDERR=/dev/null
 UNDERCLOUD=${UNDERCLOUD:-""}
 UNDERCLOUD_CONF=${UNDERCLOUD_CONF:-"/usr/share/instack-undercloud/undercloud.conf.sample"}
@@ -133,9 +135,12 @@ TEMPEST_RUN=${TEMPEST_RUN:-""}
 TEMPEST_ARGS=${TEMPEST_ARGS:-"--parallel --subunit"}
 TEMPEST_ADD_CONFIG=${TEMPEST_ADD_CONFIG:-}
 TEMPEST_REGEX=${TEMPEST_REGEX:-"^(?=(.*smoke))(?!(tempest.api.orchestration.stacks|tempest.scenario.test_volume_boot_pattern|tempest.api.telemetry))"}
+export SCRIPTS_DIR=$(dirname ${BASH_SOURCE[0]:-$0})
 
 # TODO: remove this when Image create in openstackclient supports the v2 API
 export OS_IMAGE_API_VERSION=1
+
+source $SCRIPTS_DIR/common_vars.bash
 
 # Temporary workarounds
 
@@ -157,6 +162,7 @@ while true ; do
         --delorean-setup) DELOREAN_SETUP="1"; shift 1;;
         --delorean-build) DELOREAN_BUILD="1"; shift 1;;
         --undercloud) UNDERCLOUD="1"; shift 1;;
+        --multinode-setup) MULTINODE_SETUP="1"; shift 1;;
         -x) set -x; STDERR=/dev/stderr; shift 1;;
         -h | --help) show_options 0;;
         --) shift ; break ;;
@@ -737,6 +743,55 @@ function tempest_run {
     exit ${exitval}
 }
 
+function multinode_setup {
+
+    log "Multinode Setup"
+
+    pushd $SCRIPTS_DIR/../multinode/openvpn
+    ./gen_certs.sh
+    popd
+
+    sudo yum -y install openvpn
+    pushd $SCRIPTS_DIR/../multinode/openvpn
+    sudo killall -s SIGINT openvpn
+    sudo openvpn --config server.conf
+    popd
+
+    server_ip=$(cat /etc/nodepool/primary_node)
+    sed -i "s/REMOTE/$server_ip/" $SCRIPTS_DIR/../multinode/openvpn/client.conf
+
+    # We start the index with 2 since the .1 ip is reserved for the openvpn server
+    let index=2
+    for ip in $(cat /etc/nodepool/sub_nodes); do
+        # Do repo setup
+        ssh $SSH_OPTIONS -t -i /etc/nodepool/id_rsa $ip \
+            $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --repo-setup
+
+        # Copy openvpn dir to /etc/openvpn
+        scp -r -i /etc/nodepool/id_rsa $SCRIPTS_DIR/../multinode/openvpn $ip:/etc/
+
+        # Install openvpn
+        ssh $SSH_OPTIONS -t -i /etc/nodepool/id_rsa $ip \
+            sudo yum -y install openvpn
+
+        # Update openvpn client.conf for this specific node
+        ssh $SSH_OPTIONS -t -i /etc/nodepool/id_rsa $ip \
+            sed -i "s/INDEX/$index/" openvpn/client.conf
+
+        # Start openvpn
+        ssh $SSH_OPTIONS -t -i /etc/nodepool/id_rsa $ip \
+            "sudo killall -s SIGINT openvpn || : && pushd /etc/openvpn && sudo openvpn --config client.conf"
+
+        # Run overcloud full bootstrap script
+        ssh $SSH_OPTIONS -t -i /etc/nodepool/id_rsa $ip \
+            $TRIPLEO_ROOT/tripleo-ci/scripts/bootstrap-overcloud-full.sh
+
+        let index+=1
+    done
+
+    log "Multinode Setup - DONE".
+}
+
 if [ "$REPO_SETUP" = 1 ]; then
     repo_setup
 fi
@@ -793,6 +848,10 @@ fi
 
 if [ "$TEMPEST_RUN" = 1 ]; then
     tempest_run
+fi
+
+if [ "$MULTINODE_SETUP" = 1 ]; then
+    multinode_setup
 fi
 
 if [ "$ALL" = 1 ]; then

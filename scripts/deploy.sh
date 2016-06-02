@@ -62,31 +62,34 @@ EOF_CAT
     sudo os-net-config -c /tmp/eth6.cfg -v
 fi
 
-# Our ci underclouds don't have enough RAM to allow us to use a tmpfs
-export DIB_NO_TMPFS=1
-# Override the default repositories set by tripleo.sh, to add the delorean-ci repository
-export OVERCLOUD_IMAGES_DIB_YUM_REPO_CONF=$(ls /etc/yum.repos.d/delorean*)
-# Directing the output of this command to a file as its extreemly verbose
-echo "INFO: Check /var/log/image_build.txt for image build output"
-echo "INFO: This file can be found in logs/undercloud.tar.xz in the directory containing console.log"
-start_metric "tripleo.overcloud.${TOCI_JOBTYPE}.images.seconds"
-$TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --overcloud-images | ts '%Y-%m-%d %H:%M:%S.000 |' | sudo dd of=/var/log/image_build.txt || (tail -n 50 /var/log/image_build.txt && false)
-stop_metric "tripleo.overcloud.${TOCI_JOBTYPE}.images.seconds"
+if [ "$MULTINODE" = "0" ]; then
+    # Our ci underclouds don't have enough RAM to allow us to use a tmpfs
+    export DIB_NO_TMPFS=1
+    # Override the default repositories set by tripleo.sh, to add the delorean-ci repository
+    export OVERCLOUD_IMAGES_DIB_YUM_REPO_CONF=$(ls /etc/yum.repos.d/delorean*)
+    # Directing the output of this command to a file as its extreemly verbose
+    echo "INFO: Check /var/log/image_build.txt for image build output"
+    echo "INFO: This file can be found in logs/undercloud.tar.xz in the directory containing console.log"
+    start_metric "tripleo.overcloud.${TOCI_JOBTYPE}.images.seconds"
+    $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --overcloud-images | ts '%Y-%m-%d %H:%M:%S.000 |' | sudo dd of=/var/log/image_build.txt || (tail -n 50 /var/log/image_build.txt && false)
+    stop_metric "tripleo.overcloud.${TOCI_JOBTYPE}.images.seconds"
 
-OVERCLOUD_IMAGE_MB=$(du -ms overcloud-full.qcow2 | cut -f 1 | sed 's|.$||')
-record_metric "tripleo.overcloud.${TOCI_JOBTYPE}.image.size_mb" "$OVERCLOUD_IMAGE_MB"
+    OVERCLOUD_IMAGE_MB=$(du -ms overcloud-full.qcow2 | cut -f 1 | sed 's|.$||')
+    record_metric "tripleo.overcloud.${TOCI_JOBTYPE}.image.size_mb" "$OVERCLOUD_IMAGE_MB"
 
-start_metric "tripleo.register.nodes.seconds"
-$TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --register-nodes
-stop_metric "tripleo.register.nodes.seconds"
+    start_metric "tripleo.register.nodes.seconds"
+    $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --register-nodes
+    stop_metric "tripleo.register.nodes.seconds"
 
-if [ $INTROSPECT == 1 ] ; then
-   start_metric "tripleo.introspect.seconds"
-   $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --introspect-nodes
-   stop_metric "tripleo.introspect.seconds"
+    if [ $INTROSPECT == 1 ] ; then
+       start_metric "tripleo.introspect.seconds"
+       $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --introspect-nodes
+       stop_metric "tripleo.introspect.seconds"
+    fi
+
+    sleep 60
 fi
 
-sleep 60
 
 if [ -n "${OVERCLOUD_UPDATE_ARGS:-}" ] ; then
     # Reinstall openstack-tripleo-heat-templates from delorean-current.
@@ -95,6 +98,13 @@ if [ -n "${OVERCLOUD_UPDATE_ARGS:-}" ] ; then
     # or just delorean in the case of stable branches.
     sudo rpm -ev --nodeps openstack-tripleo-heat-templates
     sudo yum -y --disablerepo=* --enablerepo=delorean,delorean-current install openstack-tripleo-heat-templates
+fi
+
+if [ "$MULTINODE" = "1" ]; then
+    # Start the script that will configure os-collect-config on the subnodes
+    nohup /usr/share/openstack-tripleo-heat-templates/deployed-server/scripts/get-occ-config.sh \
+        2>&1 1>~/logs/get-occ-config.log &
+    disown
 fi
 
 export OVERCLOUD_DEPLOY_ARGS="$OVERCLOUD_DEPLOY_ARGS -e $TRIPLEO_ROOT/tripleo-ci/test-environments/worker-config.yaml"

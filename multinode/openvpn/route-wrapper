@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -eu
+
+for route in $(env | grep route_network); do
+    route_var=$(cut -d= -f1 <<<$route)
+    echo route_var is $route_var
+    index=$(grep -E "[0-9]" -o <<<$route_var)
+    route_network_var=$(echo route_network_$index)
+    route_netmask_var=$(echo route_netmask_$index)
+    route_gateway_var=$(echo route_gateway_$index)
+
+    eval route_network=\$$route_network_var
+    eval route_netmask=\$$route_netmask_var
+    eval route_gateway=\$$route_gateway_var
+
+    echo route_network_$index is $route_network
+    echo route_netmask_$index is $route_netmask
+    echo route_gateway_$index is $route_gateway
+
+    command="/sbin/route del -net $route_network netmask $route_netmask"
+    echo Running $command
+    eval $command || :
+
+    command="/sbin/route add -net $route_network gw $route_gateway netmask $route_netmask"
+    echo Running $command
+    eval $command
+done
