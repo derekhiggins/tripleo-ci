@@ -6,6 +6,10 @@ sudo yum -y install redhat-lsb-core
 
 LSBRELEASE=`lsb_release -i -s`
 
+if ping -c 1 192.168.100.1 ; then
+    source scripts/rh2.env
+fi
+
 # Clean any cached yum metadata, it maybe stale
 sudo yum clean all
 
@@ -40,9 +44,9 @@ done
 # This EPEL Mirror is in the same data center as our CI rack
 export EPEL_MIRROR=http://dl.fedoraproject.org/pub/epel
 
-export http_proxy=http://192.168.1.100:3128/
-export GEARDSERVER=192.168.1.1
-export MIRRORSERVER=192.168.1.101
+export http_proxy=http://$PROXYIP:3128/
+export GEARDSERVER=$TEBROKERIP
+export MIRRORSERVER=$MIRRORIP
 
 export CACHEUPLOAD=0
 export INTROSPECT=0
@@ -161,11 +165,12 @@ if [ "$MULTINODE" = "0" ]; then
         # NOTE(pabelanger): We need gear for testenv, but this really should be
         # handled by tox.
         if [ $LSBRELEASE == 'CentOS' ]; then
-            sudo yum install -y python-gear
+            sudo yum -y install epel-release
+            sudo yum install -y python-gear qemu-img
         fi
         # Kill the whole job if it doesn't get a testenv in 20 minutes as it likely will timout in zuul
         ( sleep 1200 ; [ ! -e /tmp/toci.started ] && sudo kill -9 $$ ) &
-        ./testenv-client -b $GEARDSERVER:4730 -t $TIMEOUT_SECS -- ./toci_instack.sh
+        ./testenv-client -b $GEARDSERVER:4730 -t $TIMEOUT_SECS --envsize $NODECOUNT --ucinstance $(cat /var/lib/cloud/data/instance-id) -- ./toci_instack_ovb.sh
     else
         LEAVE_RUNNING=1 ./toci_instack.sh
     fi

@@ -1,6 +1,8 @@
 set -eux
 set -o pipefail
 
+cd
+
 # This sets all the environment variables for undercloud and overcloud installation
 source /opt/stack/new/tripleo-ci/deploy.env
 source /opt/stack/new/tripleo-ci/scripts/metrics.bash
@@ -14,12 +16,22 @@ if [ $UNDERCLOUD_SSL == 1 ] ; then
     echo 'generate_service_certificate = True' >> ~/undercloud.conf
 fi
 
+# 
+hostname | sudo dd of=/etc/hostname
+echo "127.0.0.1 $(hostname) $(hostname).openstacklocal" | sudo tee -a /etc/hosts
+
 sudo yum install -y moreutils
 echo "INFO: Check /var/log/undercloud_install.txt for undercloud install output"
 echo "INFO: This file can be found in logs/undercloud.tar.xz in the directory containing console.log"
 start_metric "tripleo.undercloud.install.seconds"
 $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --undercloud 2>&1 | ts '%Y-%m-%d %H:%M:%S.000 |' | sudo dd of=/var/log/undercloud_install.txt || (tail -n 50 /var/log/undercloud_install.txt && false)
 stop_metric "tripleo.undercloud.install.seconds"
+
+sudo ip link set dev eth1 up
+sudo ip link set dev eth1 mtu 1400
+echo -e "\ndhcp-option-force=26,1400" | sudo tee -a /etc/dnsmasq-ironic.conf
+sudo systemctl restart 'neutron-*'
+
 if [ $INTROSPECT == 1 ] ; then
     # I'm removing most of the nodes in the env to speed up discovery
     # This could be in jq but I don't know how
@@ -77,11 +89,14 @@ if [ "$MULTINODE" = "0" ]; then
     OVERCLOUD_IMAGE_MB=$(du -ms overcloud-full.qcow2 | cut -f 1 | sed 's|.$||')
     record_metric "tripleo.overcloud.${TOCI_JOBTYPE}.image.size_mb" "$OVERCLOUD_IMAGE_MB"
 
+    PMADDR=$(jq '.nodes[0].pm_addr' < ~/instackenv.json | tr '"' ' ')
+    tripleo wait_for -d 10 -l 40 -- ipmitool -I lanplus -H $PMADDR -U admin -P password power status
+
     start_metric "tripleo.register.nodes.seconds"
     $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --register-nodes
     stop_metric "tripleo.register.nodes.seconds"
 
-    if [ $INTROSPECT == 1 ] ; then
+    if [ $INTROSPECT == 1TODO ] ; then
        start_metric "tripleo.introspect.seconds"
        $TRIPLEO_ROOT/tripleo-ci/scripts/tripleo.sh --introspect-nodes
        stop_metric "tripleo.introspect.seconds"

@@ -204,6 +204,7 @@ function extract_logs(){
 
 function postci(){
     set +e
+    sleep 100000
     stop_metric "tripleo.ci.total.seconds"
     if [ -e $TRIPLEO_ROOT/delorean/data/repos/ ] ; then
         # I'd like to tar up repos/current but tar'ed its about 8M it may be a
@@ -263,17 +264,19 @@ function delorean_build_and_serve {
 
     # kill the http server if its already running
     ps -ef | grep -i python | grep SimpleHTTPServer | awk '{print $2}' | xargs kill -9 || true
-    cd $TRIPLEO_ROOT/delorean/data/repos
+    pushd $TRIPLEO_ROOT/delorean/data/repos
     sudo iptables -I INPUT -p tcp --dport 8766 -i eth1 -j ACCEPT
     python -m SimpleHTTPServer 8766 1>$WORKSPACE/logs/yum_mirror.log 2>$WORKSPACE/logs/yum_mirror_error.log &
+    popd
 }
 
 function create_dib_vars_for_puppet {
+    > $TRIPLEO_ROOT/tripleo-ci/deploy.env
     # create DIB environment variables for all the puppet modules, $TRIPLEO_ROOT
     # has all of the openstack modules with the correct HEAD. Set the DIB_REPO*
     # variables so they are used (and not cloned from github)
     # Note DIB_INSTALLTYPE_puppet_modules is set in tripleo.sh
-    for PROJDIR in $TRIPLEO_ROOT/puppet-*; do
+    for PROJDIR in $(find $TRIPLEO_ROOT -maxdepth 1 -mindepth 1 -name "puppet-*") ; do
         REV=$(git --git-dir=$PROJDIR/.git rev-parse HEAD)
         X=${PROJDIR//-/_}
         PROJ=${X##*/}
